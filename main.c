@@ -1,67 +1,152 @@
 //***********************************************************************
-//******** CDA3331 Intro to Micro class, updated on October 21, 2016
-//******** Dr. Bassem Alhalabi, FAU EE512, Boca Raton, Florida
-//******** Contributors: Pablo Pastran 2015,
-//******** Skeleton Program for Lab 4, in C
-//******** Run this program as is to make sure you have correct hardware connections
-//******** Explore the program and see the effect of Switches on pins P2.3-5
-//******** Lab5 Grade --> Make the appropriate changes to the program per lab manual
+//******** CDA3331 Intro to Micro class Nov 21, 2016
+//******** Dr. Bassem Alhalabi
+//******** Contributors: TA Pablo Pastran
+//******** Skeleton Program for Lab 6
+//******** Run this program as is to show you have correct hardware connections
+//******** Explore the program and read the three analog signals coming form the three sensors
 
-//***********************************************************************
-//******** CDA3331 Intro to Micro class, updated on October 21, 2016
-//******** Dr. Bassem Alhalabi, FAU EE512, Boca Raton, Florida
-//******** Contributors: Pablo Pastran 2015,
-//******** Skeleton Program for Lab 4, in C
-//******** Run this program as is to make sure you have correct hardware connections
-//******** Explore the program and see the effect of Switches on pins P2.3-5
-//******** Lab5 Grade --> Make the appropriate changes to the program per lab manual
 
-#include <msp430.h> 
+#include <msp430.h>
 
-int main(void) {
-    WDTCTL = WDTPW | WDTHOLD;    // Stop watchdog timer
+int value=0, i=0 ;
+int light = 0, lightroom = 0, dimled=50;
+int temp = 0, temproom = 0;
+int touch =0, touchroom =0;
+int flag =0;
+int ADCReading [3];
 
-    int R5_SW=0, R6_LED=0, temp=1;
+// Function Prototypes
+void fadeLED(int valuePWM);
+void ConfigureAdc(void);
+void getanalogvalues();
 
-    P1OUT = 0b00000000;     // mov.b    #00000000b,&P1OUT
-    P1DIR = 0b11111111;     // mov.b    #11111111b,&P1DIR
-    P2DIR = 0b00000000;     // mov.b    #00000000b,&P2DIR
 
-    while (1)
-    {
-        R5_SW = P2IN;       //mov.b    &P2IN, R5
-        if (R5_SW & BIT0)   //checking P2.0 for read mode
-        {
-            R6_LED = R5_SW & (BIT3 | BIT4 | BIT5);
-            P1OUT = R6_LED;
+int main(void)
+{
+    WDTCTL = WDTPW + WDTHOLD;                   // Stop WDT
+    P1OUT = 0;
+    P2OUT = 0;
+    P1DIR = 0;
+    P1REN = 0;
+    P2REN = 0;
+    P2DIR = 0;
+    P1DIR |= ( BIT4 | BIT5 | BIT6);             // set bits 4, 5, 6 as outputs
+    P2DIR |=   BIT0;                            // set bit  0       as outputs
+
+    ConfigureAdc();
+
+    // reading the initial room values, lightroom, touchroom, temproom
+       __delay_cycles(250);
+       getanalogvalues();
+       lightroom = light; touchroom = touch; temproom = temp;
+       __delay_cycles(250);
+
+
+for (;;)
+{
+        // reading light, touch, and temp repeatedly at the beginning of the main loop
+        getanalogvalues();
+
+        //light controlling LED2 on launch pad (P1.6) via variable dimled
+        dimled = light;
+        //use the light reading range limits 50-900, and convert them to 0-100%
+        dimled = ((dimled- 50)*100)/(900- 50); if(dimled <= 5)dimled = 0; else if (dimled >=95)dimled = 100;
+        fadeLED(dimled);
+
+        //light Controlling LED1 of on your breadboard
+        //Create dead zone of no action to avoid flickering (switching on/off over a small fluctuating value on light
+        //I chose the range 1.1 to 1.5 of the value; that is, no action if  (1.1 lightroom < light < 1.5 lightroom)
+        if(light < lightroom * 1.50 && light > lightroom * 1.10) {}
+        else
+        {   if(light >= lightroom * 1.50) {P1OUT |=  BIT4; __delay_cycles(200);}    // on if dark
+            if(light <= lightroom * 1.10) {P1OUT &= ~BIT4; __delay_cycles(200);}    // off if light
         }
-        else   // display rotation mode
+
+
+// *******************************************
+// beginning of area for all students changes
+
+        //Temperature Controlling LED2
+        //use a dead zone for no action between 1.01-1.03 of the temproom value
+        if(temp < temproom * 1.03 && temp > temproom * 1.01) {}
+        else
         {
-            //you need to modify the toggle line below with pattern rotation based on the value of P2.1
-            if((R5_SW &BIT1))
-            {
-                R6_LED =(R6_LED>>temp)|(R6_LED<<7);                                  //toggle pattern
-                R6_LED &= 0xFF;                                     //mask any excessive bits
-                P1OUT = R6_LED;               //pattern out - display it
-            }
-            else
-            {
-                R6_LED =(R6_LED<<temp)|(R6_LED>>7);                                     //toggle pattern
-                R6_LED &= 0xFF;                                     //mask any excessive bits
-                P1OUT = R6_LED;
-            }
+           if(temp>=temproom+temproom*.02) //+++ enter student code here for temperature control
+           {
+               P1OUT|=BIT5;
+               __delay_cycles(200);
 
+           }//if temp is higher than 1.03 of temproom, turn LED2 on
 
-        //you need to replace the simple delay line below with slow/fast delay based on P2.2
-          if(R5_SW&BIT2)
-         {
-            __delay_cycles(400000);
-          }//fast
-          if(!(R5_SW&BIT2))
-          {
-            __delay_cycles(700000);
-          }
+           if(temp<=temproom+temproom*.02)
+           {
+               P1OUT&=~BIT5;
+               __delay_cycles(200);
+           }//if temp is lower  than 1.01 of temproom, turn LED2 off
         }
-    }
+
+        //Touch Controlling LED3
+        //use a dead zone for no action between 0.7-0.9 of the value touch
+        if(touch > touchroom * 0.7 && touch < touchroom * 0.9) {}
+        else
+        {
+            if(touch>=touchroom*0.9)//+++ enter student code for toggle
+            {
+                flag=0; __delay_cycles(200);
+            }//the two lines below make a simple turn-on while still touching, off when not touching
+            if(touch<=touchroom*0.7&&flag==0)
+            {
+                P2OUT ^=  BIT0; __delay_cycles(200);
+               flag=1;
+            }
+        }
+
+// end of area for all students changes
+// *******************************************
+
+}
+}
+
+void ConfigureAdc(void)
+{
+   ADC10CTL1 = INCH_2 | CONSEQ_1;             // A2 + A1 + A0, single sequence
+   ADC10CTL0 = ADC10SHT_2 | MSC | ADC10ON;
+   while (ADC10CTL1 & BUSY);
+   ADC10DTC1 = 0x03;                          // 3 conversions
+   ADC10AE0 |= (BIT0 | BIT1 | BIT2);          // ADC10 option select
+}
+
+void fadeLED(int valuePWM)
+{
+    P1SEL |= (BIT6);                          // P1.0 and P1.6 TA1/2 options
+    CCR0 = 100 - 0;                           // PWM Period
+    CCTL1 = OUTMOD_3;                         // CCR1 reset/set
+    CCR1 = valuePWM;                          // CCR1 PWM duty cycle
+    TACTL = TASSEL_2 + MC_1;                  // SMCLK, up mode
+}
+
+void getanalogvalues()
+{
+ i = 0; temp = 0; light = 0; touch =0;        // set all analog values to zero
+    for(i=1; i<=5 ; i++)                      // read all three analog values 5 times each and average
+  {
+    ADC10CTL0 &= ~ENC;
+    while (ADC10CTL1 & BUSY);                 //Wait while ADC is busy
+    ADC10SA = (unsigned)&ADCReading[0];       //RAM Address of ADC Data, must be reset every conversion
+    ADC10CTL0 |= (ENC | ADC10SC);             //Start ADC Conversion
+    while (ADC10CTL1 & BUSY);                 //Wait while ADC is busy
+    light += ADCReading[0];                   // sum  all 5 reading for the three variables
+    touch += ADCReading[1];
+    temp += ADCReading[2];
+  }
+ light = light/5; touch = touch/5; temp = temp/5;     // Average the 5 reading for the three variables
+}
+
+
+#pragma vector=ADC10_VECTOR
+__interrupt void ADC10_ISR(void)
+{
+    __bic_SR_register_on_exit(CPUOFF);
 }
 
