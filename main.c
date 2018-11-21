@@ -1,152 +1,169 @@
 //***********************************************************************
-//******** CDA3331 Intro to Micro class Nov 21, 2016
-//******** Dr. Bassem Alhalabi
-//******** Contributors: TA Pablo Pastran
-//******** Skeleton Program for Lab 6
+//******** CDA3331 Intro to Micro class April 17, 2015
+//******** Dr. Bassem Alhalabi and TA Pablo Pastran
+//******** Skeleton Program for Lab 5
 //******** Run this program as is to show you have correct hardware connections
-//******** Explore the program and read the three analog signals coming form the three sensors
+//******** Explore the program and see the effect of Switches on pins P2.3-5
+//******** Lab5 Grade --> Make the appropriate changes to build the desired effects of input switches
+// SW-321 = 000: Counter resets to 00
+// SW-321 = 001: Right digit cycles 0-9
+// SW-321 = 010: Left digit cycles 0-9
+// SW-321 = 011: Right and left digits both hold values (preset value)
+// SW-321 = 101: Counter cycles up from the preset value to 99
+// SW-321 = 110: Counter cycles down from the preset value to 00
+// SW-321 = 100: Counter cycles up from the 00 to 99
+// SW-321 = 111: Counter cycles down from 99 to 00
 
 
-#include <msp430.h>
+#include <msp430.h> 
 
-int value=0, i=0 ;
-int light = 0, lightroom = 0, dimled=50;
-int temp = 0, temproom = 0;
-int touch =0, touchroom =0;
-int flag =0;
-int ADCReading [3];
+//Digit configuration, make sure segments h-a are connected to PORT1 pins 7-0
+//also besides disigts 0-9, you have single segments abcdefg.
+int LEDS[] = {0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x67,0x01,0x02,04,0x08,0x10,0x20,0x40,0x80};
 
-// Function Prototypes
-void fadeLED(int valuePWM);
-void ConfigureAdc(void);
-void getanalogvalues();
-
+int switches=0;
+int leftdigit=0, rightdigit=0;
+int pleftdigit=0, prightdigit=0;    //preset values
+int flag=0;
 
 int main(void)
 {
-    WDTCTL = WDTPW + WDTHOLD;                   // Stop WDT
-    P1OUT = 0;
-    P2OUT = 0;
-    P1DIR = 0;
-    P1REN = 0;
-    P2REN = 0;
-    P2DIR = 0;
-    P1DIR |= ( BIT4 | BIT5 | BIT6);             // set bits 4, 5, 6 as outputs
-    P2DIR |=   BIT0;                            // set bit  0       as outputs
+//  WDTCTL = WDTPW | WDTHOLD;       // Stop watchdog timer
+    BCSCTL2 |= DIVS_2;              // DIVS_0; DIVS_1; DIVS_2; DIVS_3;
+    WDTCTL = WDT_MDLY_0_5;          // WDT_MDLY_32; WDT_MDLY_8; WDT_MDLY_0_5;
+    IE1 |= WDTIE;
 
-    ConfigureAdc();
+    P1OUT = 0x00;                   // port 1 out default 00
+    P1DIR = 0xff;                   // port 1 all output
+    P2DIR = 0x03;                   // port 2 all inputs, except BIT0 and BIT1
 
-    // reading the initial room values, lightroom, touchroom, temproom
-       __delay_cycles(250);
-       getanalogvalues();
-       lightroom = light; touchroom = touch; temproom = temp;
-       __delay_cycles(250);
-
+    __enable_interrupt();
 
 for (;;)
 {
-        // reading light, touch, and temp repeatedly at the beginning of the main loop
-        getanalogvalues();
+//  switches =  P2IN; //if wired as active low
+    switches = ~P2IN; //if wired as active high
 
-        //light controlling LED2 on launch pad (P1.6) via variable dimled
-        dimled = light;
-        //use the light reading range limits 50-900, and convert them to 0-100%
-        dimled = ((dimled- 50)*100)/(900- 50); if(dimled <= 5)dimled = 0; else if (dimled >=95)dimled = 100;
-        fadeLED(dimled);
+    // the displayed numbers while we keep multiplexing of the display relatively faster
 
-        //light Controlling LED1 of on your breadboard
-        //Create dead zone of no action to avoid flickering (switching on/off over a small fluctuating value on light
-        //I chose the range 1.1 to 1.5 of the value; that is, no action if  (1.1 lightroom < light < 1.5 lightroom)
-        if(light < lightroom * 1.50 && light > lightroom * 1.10) {}
-        else
-        {   if(light >= lightroom * 1.50) {P1OUT |=  BIT4; __delay_cycles(200);}    // on if dark
-            if(light <= lightroom * 1.10) {P1OUT &= ~BIT4; __delay_cycles(200);}    // off if light
-        }
+    //check switches for 000 --> Counter resets to 00
+    if (((switches & BIT5) != BIT5) && ((switches & BIT4) != BIT4) && ((switches & BIT3) != BIT3))
+    {leftdigit=0; rightdigit=0; }
 
+    //check switches for 001 --> right digit count up
+    if (((switches & BIT5) != BIT5) && ((switches & BIT4) != BIT4) && ((switches & BIT3) == BIT3))
+    {rightdigit++; if (rightdigit >=10) {rightdigit=0;} }
 
-// *******************************************
-// beginning of area for all students changes
+    //check switches for 010 --> left digit count up
+    if (((switches & BIT5) != BIT5) && ((switches & BIT4) == BIT4) && ((switches & BIT3) != BIT3))
+    {leftdigit++ ; if (leftdigit >=10) {leftdigit=0;} }
 
-        //Temperature Controlling LED2
-        //use a dead zone for no action between 1.01-1.03 of the temproom value
-        if(temp < temproom * 1.03 && temp > temproom * 1.01) {}
-        else
+    //check switches for 011 --> Right and left digits both hold values (preset value)
+    if (((switches & BIT5) != BIT5) && ((switches & BIT4) == BIT4) && ((switches & BIT3) == BIT3))
+    {pleftdigit=leftdigit; prightdigit=rightdigit; }
+
+    // SW-321 = 101: Counter cycles up from the preset value to 99
+    if (((switches & BIT5) == BIT5) && ((switches & BIT4) != BIT4) && ((switches & BIT3) == BIT3))
+    // modify this secion, for now you have a rotating pattern
+    {
+        if (rightdigit <=9) {rightdigit=10;}
+        if (leftdigit  <=9) {leftdigit =10;}
+
+        rightdigit++; if (rightdigit >=16) {rightdigit=10;}
+        leftdigit--;  if (leftdigit  ==9 ) {leftdigit =15;}
+    }
+
+    // SW-321 = 110: Counter cycles down from the preset value to 00
+    if (((switches & BIT5) == BIT5) && ((switches & BIT4) == BIT4) && ((switches & BIT3) != BIT3))
+    // modify this secion,
+    {
+        rightdigit--;
+        if(rightdigit<0)
         {
-           if(temp>=temproom+temproom*.02) //+++ enter student code here for temperature control
-           {
-               P1OUT|=BIT5;
-               __delay_cycles(200);
-
-           }//if temp is higher than 1.03 of temproom, turn LED2 on
-
-           if(temp<=temproom+temproom*.02)
-           {
-               P1OUT&=~BIT5;
-               __delay_cycles(200);
-           }//if temp is lower  than 1.01 of temproom, turn LED2 off
-        }
-
-        //Touch Controlling LED3
-        //use a dead zone for no action between 0.7-0.9 of the value touch
-        if(touch > touchroom * 0.7 && touch < touchroom * 0.9) {}
-        else
-        {
-            if(touch>=touchroom*0.9)//+++ enter student code for toggle
+            rightdigit=9;
+            leftdigit--;
+            if(leftdigit<0)
             {
-                flag=0; __delay_cycles(200);
-            }//the two lines below make a simple turn-on while still touching, off when not touching
-            if(touch<=touchroom*0.7&&flag==0)
-            {
-                P2OUT ^=  BIT0; __delay_cycles(200);
-               flag=1;
+                leftdigit=9;
             }
         }
+    }
 
-// end of area for all students changes
-// *******************************************
+    //check switches for 100 --> 2 digit count up
+    if (((switches & BIT5) == BIT5) && ((switches & BIT4) != BIT4)&& ((switches & BIT3) != BIT3))
+    // modify this secion,
+    { if(flag==0)
+        {
+            leftdigit=9;
+            rightdigit=9;
+            flag=1;
+        }
+     rightdigit++;
+     if(rightdigit>=10)
+     {
+         rightdigit=0;
+         leftdigit++;
+         if(leftdigit>=10)
+         {
+             leftdigit=0;
+         }
+     }
+    }
 
-}
-}
+    //check switches for 111 --> 2 digit count down
+    if (((switches & BIT5) == BIT5) && ((switches & BIT4) == BIT4)&& ((switches & BIT3) == BIT3))
+    // modify this secion,
+    {
+        if(flag==0)
+        {
+            leftdigit=0;
+            rightdigit=0;
+            flag=1;
+        }
+        rightdigit--;
+        if(rightdigit<0)
+        {
+           rightdigit=9;
+           leftdigit--;
+           if(leftdigit<0)
+           {
+               leftdigit=9;
+           }
+        }
+    }
 
-void ConfigureAdc(void)
+    // this delay determins the speed of chaning the number bing displayd
+    __delay_cycles (500000);
+
+} // end of for loop
+} // end of main
+
+
+// WDT interrupt service routine
+#pragma vector=WDT_VECTOR
+__interrupt void WDT(void)
 {
-   ADC10CTL1 = INCH_2 | CONSEQ_1;             // A2 + A1 + A0, single sequence
-   ADC10CTL0 = ADC10SHT_2 | MSC | ADC10ON;
-   while (ADC10CTL1 & BUSY);
-   ADC10DTC1 = 0x03;                          // 3 conversions
-   ADC10AE0 |= (BIT0 | BIT1 | BIT2);          // ADC10 option select
-}
-
-void fadeLED(int valuePWM)
-{
-    P1SEL |= (BIT6);                          // P1.0 and P1.6 TA1/2 options
-    CCR0 = 100 - 0;                           // PWM Period
-    CCTL1 = OUTMOD_3;                         // CCR1 reset/set
-    CCR1 = valuePWM;                          // CCR1 PWM duty cycle
-    TACTL = TASSEL_2 + MC_1;                  // SMCLK, up mode
-}
-
-void getanalogvalues()
-{
- i = 0; temp = 0; light = 0; touch =0;        // set all analog values to zero
-    for(i=1; i<=5 ; i++)                      // read all three analog values 5 times each and average
-  {
-    ADC10CTL0 &= ~ENC;
-    while (ADC10CTL1 & BUSY);                 //Wait while ADC is busy
-    ADC10SA = (unsigned)&ADCReading[0];       //RAM Address of ADC Data, must be reset every conversion
-    ADC10CTL0 |= (ENC | ADC10SC);             //Start ADC Conversion
-    while (ADC10CTL1 & BUSY);                 //Wait while ADC is busy
-    light += ADCReading[0];                   // sum  all 5 reading for the three variables
-    touch += ADCReading[1];
-    temp += ADCReading[2];
-  }
- light = light/5; touch = touch/5; temp = temp/5;     // Average the 5 reading for the three variables
-}
+    //This executes everytime there is a timer interrupt from WDT
+    //The fequency of this interrupt controls the flickering of display
+    //The right and left digits are displayed alternatively
+    //Note that both digits must be turned off to avoid aliasing
 
 
-#pragma vector=ADC10_VECTOR
-__interrupt void ADC10_ISR(void)
-{
-    __bic_SR_register_on_exit(CPUOFF);
+    //Display code for Common-Anode display
+    P1OUT= 0; P2OUT=0;
+    __delay_cycles (100);
+    if (flag == 0) {P2OUT= BIT0; P1OUT= LEDS[leftdigit];  flag=1;}
+    else           {P2OUT= BIT1; P1OUT= LEDS[rightdigit]; flag=0;}
+    __delay_cycles (100);
+/*
+
+    //Display code for Common-Cathod display
+    P1OUT= 0xFF; P2OUT=0xFF;
+    __delay_cycles (100);
+    if (flag == 0) {P2OUT &= ~BIT0; P1OUT= ~LEDS[leftdigit];  flag=1;}
+    else           {P2OUT &= ~BIT1; P1OUT= ~LEDS[rightdigit]; flag=0;}
+    __delay_cycles (100);
+*/
+
 }
 
